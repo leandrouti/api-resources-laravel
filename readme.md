@@ -1,60 +1,232 @@
-<p align="center"><img src="https://laravel.com/assets/img/components/logo-laravel.svg"></p>
+# API Resources Using Laravel 5.6
 
-<p align="center">
-<a href="https://travis-ci.org/laravel/framework"><img src="https://travis-ci.org/laravel/framework.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/d/total.svg" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/v/stable.svg" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/license.svg" alt="License"></a>
-</p>
+## What are API Resources
+Presents a way to easily transform models into JSON responses.
+API resources is made of:
 
-## About Laravel
+* Resource Class : represents a single model that needs to be transformed to JSON.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel attempts to take the pain out of development by easing common tasks used in the majority of web projects, such as:
+* Resouce Collection : transforms collections of models into a JSON structure.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## User authentication
+### Install
+`$ composer require tymon/jwt-auth "1.0.*"`
 
-Laravel is accessible, yet powerful, providing tools needed for large, robust applications.
+### Publish Package's config file
+`$ php artisan vendor:publish --provider="Tymon\JWTAuth\Providers\LaravelServiceProvider"`
 
-## Learning Laravel
+This wil create a config/jwt.php file that will allow to configure the basics of the package.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of any modern web application framework, making it a breeze to get started learning the framework.
+### Generate Secret Key
+`$ php artisan jwt:secret`
 
-If you're not in the mood to read, [Laracasts](https://laracasts.com) contains over 1100 video tutorials on a range of topics including Laravel, modern PHP, unit testing, JavaScript, and more. Boost the skill level of yourself and your entire team by digging into our comprehensive video library.
+This will update the .env file with something like `JWT_SECERT=some_random_key`. This key will be used to sign our tokens.
 
-## Laravel Sponsors
+### Update User.php Model
+Before we can start to use the jwt-auth package, we need to update our User model to implement the
+Tymon\JWTAuth\Contracts\JWTSubject contract as below:
+```
+//app/User.php
+use Tymon\JWTAuth\Contracts\JWTSubject;
 
-We would like to extend our thanks to the following sponsors for helping fund on-going Laravel development. If you are interested in becoming a sponsor, please visit the Laravel [Patreon page](https://patreon.com/taylorotwell):
+class User extends Authenticable implements JWTSubject
+{
+	...
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[Cubet Techno Labs](https://cubettech.com)**
-- **[British Software Development](https://www.britishsoftware.co)**
-- [Fragrantica](https://www.fragrantica.com)
-- [SOFTonSOFA](https://softonsofa.com/)
-- [User10](https://user10.com)
-- [Soumettre.fr](https://soumettre.fr/)
-- [CodeBrisk](https://codebrisk.com)
-- [1Forge](https://1forge.com)
-- [TECPRESSO](https://tecpresso.co.jp/)
-- [Runtime Converter](http://runtimeconverter.com/)
-- [WebL'Agence](https://weblagence.com/)
-- [Invoice Ninja](https://www.invoiceninja.com)
+	   public function getJWTIdentifier()
+   	{
+   		return $this->getKey();
+   	}
 
-## Contributing
+   	public function getJWTCustomClaims()
+   	{
+   		return [];
+   	}
+}
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Configure the config/auth.php
+Setting the api guar to use the jwt driver, and setting the api guard as the default.
+```
+// config.auth.php
+'defaults' => [
+      'guard' => 'api',
+      'passwords' => 'users',
+    ],
 
-## Security Vulnerabilities
+    ...
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+    'guards' => [
+      'api' => [
+        'driver' => 'jwt',
+        'provider' => 'users',
+      ],
+    ],
+```
 
-## License
+### Create new auth controller
+Create the controller file
+`$ php artisan make:controller AuthController`
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Then add the code below
+```
+// app/Http/Controllers/AuthController.php
+
+// remember to add this to the top of the file
+use App\User;
+
+    public function register(Request $request)
+    {
+      $user = User::create([
+        'name' => $request->name,
+        'email' => $request->email,
+        'password' => bcrypt($request->password),
+      ]);
+
+      $token = auth()->login($user);
+
+      return $this->respondWithToken($token);
+    }
+
+    public function login(Request $request)
+    {
+      $credentials = $request->only(['email', 'password']);
+
+      if (!$token = auth()->attempt($credentials)) {
+        return response()->json(['error' => 'Unauthorized'], 401);
+      }
+
+      return $this->respondWithToken($token);
+    }
+
+    protected function respondWithToken($token)
+    {
+      return response()->json([
+        'access_token' => $token,
+        'token_type' => 'bearer',
+        'expires_in' => auth()->factory()->getTTL() * 60
+      ]);
+    }
+```
+
+### Create the book resource
+By default, resources will be placed in the `app/Http/Resources` directory of our application.
+`$ php artisan make:resource BookResource`
+
+Once that is created, add the code below on `// app/Http/Resources/BookResource.php`
+```
+    // app/Http/Resources/BookResource.php
+
+    public function toArray($request)
+    {
+      return [
+        'id' => $this->id,
+        'title' => $this->title,
+        'description' => $this->description,
+        'created_at' => (string) $this->created_at,
+        'updated_at' => (string) $this->updated_at,
+        'user' => $this->user,
+        'ratings' => $this->ratings,
+      ];
+    }
+```
+
+### Create the book controller
+`$ php artisan make:controller BookController --api`
+
+Then add the code below:
+
+```
+// app/Http/Controllers/BookController.php
+
+    // add these at the top of the file
+    use App\Book;
+    use App\Http\Resources\BookResource;
+
+    public function index()
+    {
+      return BookResource::collection(Book::with('ratings')->paginate(25));
+    }
+
+    public function store(Request $request)
+    {
+      $book = Book::create([
+        'user_id' => $request->user()->id,
+        'title' => $request->title,
+        'description' => $request->description,
+      ]);
+
+      return new BookResource($book);
+    }
+
+    public function show(Book $book)
+    {
+      return new BookResource($book);
+    }
+
+    public function update(Request $request, Book $book)
+    {
+      // check if currently authenticated user is the owner of the book
+      if ($request->user()->id !== $book->user_id) {
+        return response()->json(['error' => 'You can only edit your own books.'], 403);
+      }
+
+      $book->update($request->only(['title', 'description']));
+
+      return new BookResource($book);
+    }
+
+    public function destroy(Book $book)
+    {
+      $book->delete();
+
+      return response()->json(null, 204);
+    }
+```
+
+### Create Rating resource
+* Create the Rating Resource
+`$ php artisan make:resource RatingResource`
+
+* Edit RatingResource.php
+```
+    // app/Http/Resources/RatingResource.php
+
+    public function toArray($request)
+    {
+      return [
+        'user_id' => $this->user_id,
+        'book_id' => $this->book_id,
+        'rating' => $this->rating,
+        'created_at' => (string) $this->created_at,
+        'updated_at' => (string) $this->updated_at,
+        'book' => $this->book,
+      ];
+    }
+```
+
+* Creating rating controller
+`$ php artisan make:controller RatingController`
+
+* Edit the RatingController.php
+```
+    // app/Http/Controllers/RatingController.php
+
+    // add these at the top of the file
+    use App\Book;
+    use App\Rating;
+    use App\Http\Resources\RatingResource;
+
+    public function store(Request $request, Book $book)
+    {
+      $rating = Rating::firstOrCreate(
+        [
+          'user_id' => $request->user()->id,
+          'book_id' => $book->id,
+        ],
+        ['rating' => $request->rating]
+      );
+
+      return new RatingResource($rating);
+    }
+```

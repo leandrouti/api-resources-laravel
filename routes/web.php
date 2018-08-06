@@ -14,3 +14,6 @@
 Route::get('/', function () {
     return view('welcome');
 });
+
+Route::apiResource('books', 'BookController');
+route::post('books/{book}/ratings', 'RatingController@store');
